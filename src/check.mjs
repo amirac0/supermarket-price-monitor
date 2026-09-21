@@ -212,15 +212,23 @@ async function collectCarrefour() {
           try {
             await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
             await page.waitForTimeout(2200);
-            const cards=await page.locator('article, [data-testid*="product"], [class*="product-card"], [class*="productCard"], [class*="product"]').evaluateAll(nodes =>
-              nodes.slice(0,100).map(n=>({
+            console.log('CARREFOUR PAGE:',page.url(),'TITLE:',await page.title());
+            const bodyText=(await page.locator('body').innerText().catch(()=>'' )).replace(/\\s+/g,' ').trim();
+            console.log('CARREFOUR BODY SAMPLE:',bodyText.slice(0,3500));
+            const links=await page.locator('a[href]').evaluateAll(nodes=>nodes.slice(0,250).map(a=>({
+              text:(a.innerText||'').replace(/\\s+/g,' ').trim(),
+              href:a.href||''
+            })).filter(x=>x.text && /€|oreo|kinder|lion|lindt|ferrero|raffaello|tic tac|nescaf/i.test(x.text))).catch(()=>[]);
+            const cards=await page.locator('article, li, [role="listitem"], [data-testid], [class*="product"], [class*="Product"], [class*="tile"], [class*="Tile"], [class*="card"], [class*="Card"]').evaluateAll(nodes =>
+              nodes.slice(0,250).map(n=>({
                 text:(n.innerText||'').replace(/\\s+/g,' ').trim(),
                 href:n.querySelector('a[href]')?.href||''
-              })).filter(x=>x.text)
+              })).filter(x=>x.text && /€/.test(x.text) && x.text.length<1800)
             ).catch(()=>[]);
-            console.log('CARREFOUR CARDS:',product.name,'count=',cards.length);
-            console.log('CARREFOUR CARD SAMPLES:',JSON.stringify(cards.slice(0,5)).slice(0,5000));
-            for (const card of cards) {
+            const candidates=[...cards,...links].filter((x,i,a)=>a.findIndex(y=>y.text===x.text && y.href===x.href)===i);
+            console.log('CARREFOUR CARDS:',product.name,'count=',candidates.length);
+            console.log('CARREFOUR CARD SAMPLES:',JSON.stringify(candidates.slice(0,10)).slice(0,7000));
+            for (const card of candidates) {
               const text=card.text;
               const price=parseEuro(text);
               const priceKg=parseKg(text);
