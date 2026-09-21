@@ -88,12 +88,14 @@ function comparisonKey(o) {
   if (o.productId === 'lindt-creation') {
     const flavors=['cookie dough','creme brulee','fondant','praline','pistache','noisette','caramel','citron','menthe','orange'];
     const flavor=flavors.find(x=>s.includes(x));
-    return `${o.productId}:${form}:${flavor||s.replace(/\b(lindt|creation|de|chocolat|au|lait|noir|blanc)\b/g,' ').replace(/\s+/g,' ').trim()}`;
+    const chocolate=/chocolat blanc|\bblanc\b/.test(s)?'blanc':/chocolat noir|\bnoir\b/.test(s)?'noir':/chocolat au lait|chocolat lait|\blait\b/.test(s)?'lait':'non-precise';
+    return `${o.productId}:${form}:${flavor||s.replace(/\b(lindt|creation|de|chocolat|au|lait|noir|blanc)\b/g,' ').replace(/\s+/g,' ').trim()}:${chocolate}`;
   }
   if (o.productId === 'nescafe-cappuccino') {
     const flavors=['kitkat','vanille','chocolat blanc','noisette','praline','caramel beurre sale'];
     const flavor=flavors.find(x=>s.includes(x));
-    return `${o.productId}:${form}:${flavor||'classique'}`;
+    const preparation=/capsule|dolce gusto/.test(s)?'capsules':/soluble|stick/.test(s)?'soluble':'non-precise';
+    return `${o.productId}:${preparation}:${flavor||'classique'}`;
   }
   if (o.productId === 'ferrero-rocher' || o.productId === 'raffaello') return `${o.productId}:${form}`;
   return o.productId;
@@ -180,6 +182,10 @@ async function collectAuchan() {
             const priceKg=parseKg(text);
             const price=parseEuro(text);
             if (!price || !priceKg) continue;
+            // Some nested Auchan DOM nodes expose only the €/kg value, causing
+            // parseEuro() to mistake it for the package price. Keep the real
+            // linked product card and reject these synthetic duplicates.
+            if (!card.href && Math.abs(price-priceKg)<0.001) continue;
 
             // Require meaningful query coverage in the same card.
             const stop=new Set(['avec','sans','pour','dans','saveur','gout','gouts','chocolat']);
@@ -193,8 +199,9 @@ async function collectAuchan() {
             const promotion=parsePromotion(text,price,priceKg);
             const variantName=text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x) && x.length>6) || product.name;
             const cmpKey=comparisonKey({productId:product.id,variantName});
-            if (!offers.some(o=>o.store===store.name && o.comparisonKey===cmpKey && o.url===(card.href||page.url()))) {
-              offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
+            const offerUrl=card.href||page.url();
+            if (!offers.some(o=>o.store===store.name && (o.url===offerUrl || (o.comparisonKey===cmpKey && Math.abs(o.price-price)<0.001)))) {
+              offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url:offerUrl});
               console.log('AUCHAN VERIFIED CARD:',variantName,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'',card.href||'');
             }
             matched=true;
