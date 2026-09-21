@@ -145,7 +145,9 @@ async function gtinFromProductPage(page, url) {
 function comparisonKey(o) {
   // GTIN identifies an exact sellable reference, but comparison is intentionally
   // based on the same product/variant/form so different pack sizes remain comparable in €/kg.
-  if (o.comparisonKey && !String(o.comparisonKey).startsWith('gtin:')) return o.comparisonKey;
+  // Always recompute Lindt/Nescafé families from the final variant name: collectors
+  // may have stored an earlier provisional comparisonKey before metadata enrichment.
+  if (o.comparisonKey && !String(o.comparisonKey).startsWith('gtin:') && !['lindt-creation','nescafe-cappuccino'].includes(o.productId)) return o.comparisonKey;
   const s=String(o.variantName||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const form=/oeuf/.test(s)?'oeuf':/tablette/.test(s)?'tablette':/barre/.test(s)?'barre':/cereale/.test(s)?'cereales':/bonbon/.test(s)?'bonbons':'standard';
   if (o.productId === 'lindt-creation') {
