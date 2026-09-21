@@ -44,6 +44,25 @@ async function collectAuchan() {
   const offers=[];
   try {
     const page=await browser.newPage({locale:'fr-FR'});
+    // Establish the Eaubonne Drive context before product searches.
+    // The official Auchan store page exposes this Drive and a "Choisir ce Drive" action.
+    try {
+      const driveUrl='https://www.auchan.fr/magasins/drive/auchan-drive-supermarche-eaubonne/s-6159';
+      await page.goto(driveUrl,{waitUntil:'domcontentloaded',timeout:30000});
+      await page.waitForTimeout(1500);
+      const choose=page.getByText(/Choisir ce Drive/i).first();
+      if (await choose.count()) {
+        await choose.click({timeout:10000});
+        await page.waitForTimeout(2500);
+        console.log('AUCHAN DRIVE selected via store page:', page.url());
+      } else {
+        console.log('AUCHAN DRIVE selector not found');
+      }
+      const journey=await page.request.get('https://www.auchan.fr/journey');
+      console.log('AUCHAN JOURNEY AFTER SELECT:', (await journey.text()).replace(/\s+/g,' ').slice(0,2500));
+    } catch(e) {
+      console.log('AUCHAN DRIVE selection failed:', e.message);
+    }
     const seenNetwork=new Set();
     page.on('response', async response => {
       const type=response.request().resourceType();
