@@ -1,0 +1,37 @@
+[
+  {
+    "chain": "Auchan",
+    "name": "Auchan Supermarché Eaubonne",
+    "address": "25 Rue Jeanne d'Arc, 95600 Eaubonne",
+    "source": "https://www.auchan.fr/",
+    "enabled": true
+  },
+  {
+    "chain": "Intermarché",
+    "name": "Intermarché Express Ermont",
+    "address": "224 rue du Général Leclerc, 95120 Ermont",
+    "source": "https://www.intermarche.com/",
+    "enabled": true
+  },
+  {
+    "chain": "Carrefour",
+    "name": "Carrefour Hyper Ermont",
+    "address": "Avenue du Président Georges Pompidou, 95120 Ermont",
+    "source": "https://www.carrefour.fr/",
+    "enabled": true
+  },
+  {
+    "chain": "E.Leclerc",
+    "name": "Leclerc relais Saint-Prix",
+    "address": "77 Rue d'Ermont, 95390 Saint-Prix",
+    "source": "https://www.leclercdrive.fr/",
+    "enabled": true
+  },
+  {
+    "chain": "Monoprix",
+    "name": "Monoprix Soisy-sous-Montmorency",
+    "address": "Soisy-sous-Montmorency 95230",
+    "source": "https://www.monoprix.fr/",
+    "enabled": true
+  }
+]
