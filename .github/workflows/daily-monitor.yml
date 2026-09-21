@@ -35,4 +35,5 @@ jobs:
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASS: ${{ secrets.SMTP_PASS }}
           SMTP_FROM: ${{ secrets.SMTP_FROM }}
+          REEF_API_KEY: ${{ secrets.REEF_API_KEY }}
         run: npm run check
