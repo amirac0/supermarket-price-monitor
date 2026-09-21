@@ -92,15 +92,37 @@ async function collectAuchan() {
           })).catch(()=>({}));
           const storageText=JSON.stringify(storage);
           if (/store|magasin|drive|shop/i.test(storageText)) console.log('AUCHAN STORAGE:', storageText.slice(0,1800));
-          const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ');
-          const priceKg=parseKg(body);
-          const price=parseEuro(body);
-          const promo=/promotion|promo|%|offert/i.test(body);
-          if (price && priceKg) {
-            offers.push({productId:product.id,productName:product.name,store:store.name,price,pricePerKg:priceKg,promo,url:page.url()});
-            console.log('AUCHAN',product.name,price,priceKg,promo?'PROMO':'');
+          // Inspect individual product cards instead of pairing unrelated prices
+          // from the full page. We only accept a card when both a price and €/kg
+          // are present in the same DOM block.
+          const cards=await page.locator('article, [data-testid*="product"], [class*="product-card"], [class*="productCard"], [class*="product"]').evaluateAll(nodes =>
+            nodes.slice(0,80).map(n => ({
+              text:(n.innerText||'').replace(/\\s+/g,' ').trim(),
+              href:n.querySelector('a[href]')?.href || ''
+            })).filter(x => x.text)
+          ).catch(()=>[]);
+          console.log('AUCHAN CARDS:', product.name, 'count=', cards.length);
+          console.log('AUCHAN CARD SAMPLES:', JSON.stringify(cards.slice(0,5)).slice(0,5000));
+
+          let matched=false;
+          for (const card of cards) {
+            const text=card.text;
+            const priceKg=parseKg(text);
+            const price=parseEuro(text);
+            if (!price || !priceKg) continue;
+
+            // Require at least one meaningful query token in the same card.
+            const tokens=query.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').split(/\\s+/).filter(t=>t.length>=4);
+            const normalized=text.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');
+            if (tokens.length && !tokens.some(t=>normalized.includes(t))) continue;
+
+            const promo=/promotion|promo|%|offert|remise|prix choc|avantage/i.test(text);
+            offers.push({productId:product.id,productName:product.name,store:store.name,price,pricePerKg:priceKg,promo,url:card.href||page.url()});
+            console.log('AUCHAN VERIFIED CARD:',product.name,price,priceKg,promo?'PROMO':'',card.href||'');
+            matched=true;
             break;
           }
+          if (matched) break;
           console.log('AUCHAN no verified local price:',product.name,query);
         } catch(e) {
           console.log('AUCHAN failed:',product.name,e.message);
