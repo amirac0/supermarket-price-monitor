@@ -1,0 +1,27 @@
+name: Daily supermarket monitor
+
+on:
+  schedule:
+    - cron: '0 6 * * *'
+    - cron: '0 7 * * *'
+  workflow_dispatch:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check Paris time
+        if: github.event_name == 'schedule'
+        run: |
+          HOUR=$(TZ=Europe/Paris date +%H)
+          if [ "$HOUR" != "08" ]; then
+            echo "Outside 08:00 Europe/Paris."
+            exit 0
+          fi
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - run: npm install
+      - run: npm run check
