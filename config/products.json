@@ -1,0 +1,74 @@
+[
+  {
+    "id": "oreo",
+    "name": "Oreo biscuits",
+    "queries": [
+      "Oreo Original",
+      "Oreo biscuits"
+    ]
+  },
+  {
+    "id": "kinder-bueno",
+    "name": "Kinder Bueno",
+    "queries": [
+      "Kinder Bueno"
+    ]
+  },
+  {
+    "id": "kinder-bueno-white",
+    "name": "Kinder Bueno White",
+    "queries": [
+      "Kinder Bueno White"
+    ]
+  },
+  {
+    "id": "lion-caramel-choco",
+    "name": "Céréales Lion caramel chocolat",
+    "queries": [
+      "Lion caramel chocolat céréales",
+      "Nestlé Lion caramel chocolat"
+    ]
+  },
+  {
+    "id": "lindt-creation",
+    "name": "Lindt Création",
+    "queries": [
+      "Lindt Création"
+    ]
+  },
+  {
+    "id": "ferrero-rocher",
+    "name": "Ferrero Rocher",
+    "queries": [
+      "Ferrero Rocher"
+    ]
+  },
+  {
+    "id": "raffaello",
+    "name": "Raffaello",
+    "queries": [
+      "Raffaello Ferrero"
+    ]
+  },
+  {
+    "id": "tictac-menthe",
+    "name": "Tic Tac menthe",
+    "queries": [
+      "Tic Tac menthe",
+      "Tic Tac Mint"
+    ]
+  },
+  {
+    "id": "nescafe-cappuccino",
+    "name": "Nescafé Cappuccino (saveurs)",
+    "queries": [
+      "Nescafé cappuccino vanille",
+      "Nescafé cappuccino chocolat blanc",
+      "Nescafé cappuccino noisette",
+      "Nescafé cappuccino praliné",
+      "Nescafé cappuccino",
+      "Nescafé cappuccino caramel beurre salé",
+      "Nescafé cappuccino KitKat"
+    ]
+  }
+]
