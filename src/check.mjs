@@ -164,7 +164,8 @@ async function collectAuchan() {
             if (tokens.length && hits < needed) continue;
 
             const promotion=parsePromotion(text,price,priceKg);
-            offers.push({productId:product.id,productName:product.name,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
+            const variantName=text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x) && x.length>6) || product.name;
+            offers.push({productId:product.id,productName:product.name,variantName,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
             console.log('AUCHAN VERIFIED CARD:',product.name,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'',card.href||'');
             matched=true;
             break;
@@ -235,7 +236,8 @@ async function collectCarrefour() {
             promotion={promo:true,promoType:'DIRECT_DISCOUNT',promoText:`-${pct.toFixed(0)}% immédiat`,promoQuantity:1,effectivePrice:price,effectivePricePerKg:unit};
           }
 
-          offers.push({productId:product.id,productName:product.name,store:store.name,price,pricePerKg:unit,...promotion,url:row.url||store.storePage||''});
+          const variantName=row.title || product.name;
+          offers.push({productId:product.id,productName:product.name,variantName,store:store.name,price,pricePerKg:unit,...promotion,url:row.url||store.storePage||''});
           console.log('CARREFOUR VERIFIED API:',product.name,price,unit,promotion.promo?('PROMO '+promotion.promoText):'',row.url||'');
           matched=true;
           break;
@@ -263,7 +265,8 @@ async function sendEmail(deals) {
   const required=n=>{if(!process.env[n]) throw new Error(`Missing secret: ${n}`); return process.env[n];};
   const transporter=nodemailer.createTransport({host:required('SMTP_HOST'),port:Number(process.env.SMTP_PORT||465),secure:String(process.env.SMTP_SECURE||'true').toLowerCase()==='true',auth:{user:required('SMTP_USER'),pass:required('SMTP_PASS')}});
   const body=deals.map(d=>{
-    const lines=[d.productName,d.store,`Prix affiché : ${d.price.toFixed(2)} € — ${d.pricePerKg.toFixed(2)} €/kg`];
+    const title=d.variantName && d.variantName!==d.productName ? `${d.productName} — ${d.variantName}` : d.productName;
+    const lines=[title,d.store,`Prix affiché : ${d.price.toFixed(2)} € — ${d.pricePerKg.toFixed(2)} €/kg`];
     if (d.promo) {
       lines.push(`Promo : ${d.promoText||'promotion affichée'}`);
       if (Number.isFinite(d.effectivePrice) && Math.abs(d.effectivePrice-d.price)>0.001) {
