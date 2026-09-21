@@ -86,7 +86,7 @@ function comparisonKey(o) {
   const s=String(o.variantName||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const form=/oeuf/.test(s)?'oeuf':/tablette/.test(s)?'tablette':/barre/.test(s)?'barre':/cereale/.test(s)?'cereales':/bonbon/.test(s)?'bonbons':'standard';
   if (o.productId === 'lindt-creation') {
-    const flavors=['cookie dough','creme brulee','fondant','praline','pistache','noisette','caramel','citron','menthe','orange'];
+    const flavors=['cookie dough','creme brulee','rocher','fondant','praline','pistache','noisette','caramel','citron','menthe','orange'];
     const flavor=flavors.find(x=>s.includes(x));
     const chocolate=/chocolat blanc|\bblanc\b/.test(s)?'blanc':/chocolat noir|\bnoir\b/.test(s)?'noir':/chocolat au lait|chocolat lait|\blait\b/.test(s)?'lait':'non-precise';
     return `${o.productId}:${form}:${flavor||s.replace(/\b(lindt|creation|de|chocolat|au|lait|noir|blanc)\b/g,' ').replace(/\s+/g,' ').trim()}:${chocolate}`;
