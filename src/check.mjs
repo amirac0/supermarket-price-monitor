@@ -191,12 +191,17 @@ async function collectCarrefour() {
       const driveUrl='https://www.carrefour.fr/magasin/ermont/drive';
       await page.goto(driveUrl,{waitUntil:'domcontentloaded',timeout:30000});
       await page.waitForTimeout(1800);
+      const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
+      console.log('CARREFOUR DRIVE context:',page.url(),'TITLE:',await page.title(),'BODY:',body.slice(0,1200));
+      if (/formalite|formalité|humain/i.test(body)) {
+        console.log('CARREFOUR BLOCKED by anti-bot challenge; skipping Carrefour without fake prices.');
+        return offers;
+      }
       const choose=page.getByText(/Choisir ce drive/i).first();
       if (await choose.count()) {
         await choose.click({timeout:10000}).catch(()=>{});
         await page.waitForTimeout(1800);
       }
-      console.log('CARREFOUR DRIVE context:',page.url());
     } catch(e) {
       console.log('CARREFOUR DRIVE selection failed:',e.message);
     }
@@ -215,6 +220,10 @@ async function collectCarrefour() {
             console.log('CARREFOUR PAGE:',page.url(),'TITLE:',await page.title());
             const bodyText=(await page.locator('body').innerText().catch(()=>'' )).replace(/\\s+/g,' ').trim();
             console.log('CARREFOUR BODY SAMPLE:',bodyText.slice(0,3500));
+            if (/formalite|formalité|humain/i.test(bodyText)) {
+              console.log('CARREFOUR BLOCKED on search page; stopping Carrefour collector.');
+              return offers;
+            }
             const links=await page.locator('a[href]').evaluateAll(nodes=>nodes.slice(0,250).map(a=>({
               text:(a.innerText||'').replace(/\\s+/g,' ').trim(),
               href:a.href||''
