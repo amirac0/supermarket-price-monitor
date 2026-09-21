@@ -44,12 +44,35 @@ async function collectAuchan() {
   const offers=[];
   try {
     const page=await browser.newPage({locale:'fr-FR'});
+    const seenNetwork=new Set();
+    page.on('response', async response => {
+      const type=response.request().resourceType();
+      const ct=response.headers()['content-type'] || '';
+      if (!['xhr','fetch'].includes(type) && !ct.includes('json')) return;
+      const u=response.url();
+      if (seenNetwork.has(u)) return;
+      seenNetwork.add(u);
+      try {
+        const text=await response.text();
+        if (/price|prix|product|produit|offer|promotion|store|magasin/i.test(text)) {
+          console.log('AUCHAN NETWORK:', response.status(), u.slice(0,300));
+          console.log('AUCHAN DATA:', text.replace(/\s+/g,' ').slice(0,1200));
+        }
+      } catch {}
+    });
     for (const product of products) {
       for (const query of product.queries) {
         const url='https://www.auchan.fr/recherche?text='+encodeURIComponent(query);
         try {
           await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
-          await page.waitForTimeout(1500);
+          await page.waitForTimeout(2500);
+          console.log('AUCHAN PAGE:', page.url(), 'TITLE:', await page.title());
+          const storage=await page.evaluate(() => ({
+            local:Object.fromEntries(Object.entries(localStorage)),
+            session:Object.fromEntries(Object.entries(sessionStorage))
+          })).catch(()=>({}));
+          const storageText=JSON.stringify(storage);
+          if (/store|magasin|drive|shop/i.test(storageText)) console.log('AUCHAN STORAGE:', storageText.slice(0,1800));
           const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ');
           const priceKg=parseKg(body);
           const price=parseEuro(body);
