@@ -19,7 +19,7 @@ export function median(values) {
 export function findDeals(offers) {
   return offers.filter(o => {
     const current=comparableKg(o);
-    const others=offers.filter(x=>x.productId===o.productId && x.store!==o.store && Number.isFinite(comparableKg(x))).map(x=>comparableKg(x));
+    const others=offers.filter(x=>comparisonKey(x)===comparisonKey(o) && x.store!==o.store && Number.isFinite(comparableKg(x))).map(x=>comparableKg(x));
     if (others.length) {
       o.referencePricePerKg=median(others);
       o.discountVsMedian=Number.isFinite(current) ? 1-current/o.referencePricePerKg : null;
@@ -79,6 +79,14 @@ function parsePromotion(text, price, pricePerKg) {
 
 function comparableKg(o) {
   return Number.isFinite(o.effectivePricePerKg) ? o.effectivePricePerKg : o.pricePerKg;
+}
+
+function comparisonKey(o) {
+  if (o.productId !== 'lindt-creation') return o.productId;
+  const s=String(o.variantName||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const flavors=['cookie dough','creme brulee','creme brûlee','fondant','praline','pistache','noisette','caramel','citron','menthe','orange'];
+  const flavor=flavors.find(x=>s.includes(x.normalize('NFD').replace(/[\u0300-\u036f]/g,'')));
+  return flavor ? `${o.productId}:${flavor.normalize('NFD').replace(/[\u0300-\u036f]/g,'')}` : `${o.productId}:${s.replace(/\b(lindt|creation|tablette|de|chocolat|au|lait|noir|blanc)\b/g,' ').replace(/\s+/g,' ').trim()}`;
 }
 
 async function collectAuchan() {
@@ -273,7 +281,7 @@ async function sendEmail(deals) {
         lines.push(`Prix effectif promo : ${d.effectivePrice.toFixed(2)} € / unité — ${d.effectivePricePerKg.toFixed(2)} €/kg${d.promoQuantity? ` (achat de ${d.promoQuantity})`:''}`);
       }
     }
-    const competitors=offers.filter(x=>x.productId===d.productId && x.store!==d.store && Number.isFinite(comparableKg(x))).sort((a,b)=>comparableKg(a)-comparableKg(b));
+    const competitors=offers.filter(x=>comparisonKey(x)===comparisonKey(d) && x.store!==d.store && Number.isFinite(comparableKg(x))).sort((a,b)=>comparableKg(a)-comparableKg(b));
     if (competitors.length) {
       lines.push('', 'Comparaison autres magasins :');
       for (const x of competitors) lines.push(`- ${x.store}: ${x.price.toFixed(2)} € — ${comparableKg(x).toFixed(2)} €/kg${x.promo?' (promo)':''}`);
