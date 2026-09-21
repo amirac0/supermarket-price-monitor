@@ -584,15 +584,63 @@ async function collectMonoprix() {
     q=>'https://courses.monoprix.fr/search?text='+encodeURIComponent(q));
 }
 
+async function lookupCarrefourByGtins(items) {
+  const store=stores.find(s=>s.chain==='Carrefour' && s.enabled!==false);
+  const apiKey=process.env.REEF_API_KEY;
+  if (!store || !apiKey || !items.length) return [];
+  const offers=[];
+  for (const item of items) {
+    try {
+      const response=await fetch('https://api.reefapi.com/carrefour-fr/v1/search',{
+        method:'POST',
+        headers:{'content-type':'application/json','x-api-key':apiKey},
+        body:JSON.stringify({query:item.gtin,postal_code:'95120',include_unavailable:false})
+      });
+      if (!response.ok) { console.log('CARREFOUR GTIN LOOKUP HTTP:',item.gtin,response.status); continue; }
+      const payload=await response.json();
+      const rows=payload?.data?.results||[];
+      const row=rows.find(r=>validGtin(r.gtin??r.ean??r.ean13??r.barcode??r.product_code)===item.gtin);
+      if (!row) { console.log('CARREFOUR GTIN LOOKUP MISS:',item.gtin,item.variantName||item.productName); continue; }
+      const price=Number(row.price?.value??row.price??row.current_price);
+      const unit=Number(row.unit_price?.value??row.unit_price??row.price_per_unit);
+      if (!Number.isFinite(price)||!Number.isFinite(unit)) { console.log('CARREFOUR GTIN LOOKUP NO PRICE:',item.gtin); continue; }
+      const variantName=row.title||item.variantName||item.productName;
+      if (!isValidProductMatch({id:item.productId},variantName)) continue;
+      const offerUrl=row.url||`https://www.carrefour.fr/s?q=${encodeURIComponent(item.gtin)}`;
+      let promotion={promo:false,promoType:null,promoText:null,promoQuantity:null,effectivePrice:price,effectivePricePerKg:unit};
+      const promoSource=[row.promotion_text,row.promotion?.label,row.promotion?.text,...(Array.isArray(row.multibuy_offers)?row.multibuy_offers.map(x=>x?.label||x?.text||''):[]),...(Array.isArray(row.loyalty_offers)?row.loyalty_offers.map(x=>x?.label||x?.text||''):[])].filter(Boolean).join(' ');
+      if (promoSource) promotion=parsePromotion(promoSource,price,unit);
+      if (!promotion.promo && /^https:\/\/www\.carrefour\.fr\/p\//i.test(offerUrl)) {
+        const pagePromotion=await fetchCarrefourPagePromotion(offerUrl,price,unit);
+        if (pagePromotion) promotion=pagePromotion;
+      }
+      offers.push({productId:item.productId,productName:item.productName,variantName,gtin:item.gtin,store:store.name,price,pricePerKg:unit,...promotion,url:offerUrl});
+      console.log('CARREFOUR GTIN LOOKUP VERIFIED:',item.gtin,variantName,price,unit,promotion.promo?('PROMO '+promotion.promoText):'',offerUrl);
+    } catch(e) { console.log('CARREFOUR GTIN LOOKUP ERROR:',item.gtin,e.message); }
+  }
+  return offers;
+}
+
 async function collectOffers() {
   const offers=[];
   console.log(`Monitoring ${products.length} product groups across ${stores.length} configured stores.`);
   offers.push(...await collectAuchan());
+  const auchanOffers=[...offers];
   const carrefourOffers=await collectCarrefour();
   offers.push(...carrefourOffers);
-  const knownAuchanGtins=new Set(offers.filter(o=>o.store?.includes('Auchan')&&o.gtin).map(o=>o.gtin));
-  const crossLookup=[...new Map(carrefourOffers.filter(o=>o.gtin&&!knownAuchanGtins.has(o.gtin)).map(o=>[o.gtin,o])).values()];
-  offers.push(...await lookupAuchanByGtins(crossLookup));
+
+  // Cross-check exact EANs in BOTH directions. This discovers variants that a
+  // store's text search missed, then family comparison still works by €/kg.
+  const knownAuchanGtins=new Set(auchanOffers.filter(o=>o.gtin).map(o=>o.gtin));
+  const toAuchan=[...new Map(carrefourOffers.filter(o=>o.gtin&&!knownAuchanGtins.has(o.gtin)).map(o=>[o.gtin,o])).values()];
+  offers.push(...await lookupAuchanByGtins(toAuchan));
+
+  const knownCarrefourGtins=new Set(carrefourOffers.filter(o=>o.gtin).map(o=>o.gtin));
+  const toCarrefour=[...new Map(auchanOffers.filter(o=>o.gtin&&!knownCarrefourGtins.has(o.gtin)).map(o=>[o.gtin,o])).values()];
+  const carrefourCross=await lookupCarrefourByGtins(toCarrefour);
+  for (const o of carrefourCross) {
+    if (!offers.some(x=>x.store===o.store&&x.gtin===o.gtin&&x.price===o.price)) offers.push(o);
+  }
   offers.push(...await collectIntermarche());
   offers.push(...await collectLeclerc());
   offers.push(...await collectMonoprix());
