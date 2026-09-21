@@ -52,28 +52,29 @@ function parseKg(text) {
 
 function parsePromotion(text, price, pricePerKg) {
   const s=String(text).replace(/\s+/g,' ').trim();
-  const second=s.match(/(?:le\s*)?2(?:e|ème|eme)\s*(?:à|a)?\s*-\s*(\d{1,2})\s*%/i);
+  const second=s.match(/(?:-\s*(\d{1,2})\s*%\s*(?:sur\s*)?(?:le\s*)?2(?:e|ème|eme)|(?:le\s*)?2(?:e|ème|eme)\s*(?:à|a)?\s*-\s*(\d{1,2})\s*%)/i);
   if (second) {
-    const pct=Number(second[1])/100;
+    const pct=Number(second[1]||second[2])/100;
     const factor=(2-pct)/2;
-    return {promo:true,promoText:second[0],promoQuantity:2,effectivePrice:price*factor,effectivePricePerKg:pricePerKg*factor};
+    const pctLabel=Math.round(pct*100);
+    return {promo:true,promoType:'SECOND_ITEM_DISCOUNT',promoText:`-${pctLabel}% sur le 2ème article`,promoQuantity:2,effectivePrice:price*factor,effectivePricePerKg:pricePerKg*factor};
   }
   const oneFree=s.match(/(\d+)\s*\+\s*(\d+)\s*(?:offert|gratuits?)/i);
   if (oneFree) {
     const paid=Number(oneFree[1]), free=Number(oneFree[2]), total=paid+free;
     if (paid>0 && total>paid) {
       const factor=paid/total;
-      return {promo:true,promoText:oneFree[0],promoQuantity:total,effectivePrice:price*factor,effectivePricePerKg:pricePerKg*factor};
+      return {promo:true,promoType:'MULTIBUY_FREE',promoText:`${paid} + ${free} offert`,promoQuantity:total,effectivePrice:price*factor,effectivePricePerKg:pricePerKg*factor};
     }
   }
   const direct=s.match(/-\s*(\d{1,2})\s*%/);
   if (direct) {
     const pct=Number(direct[1])/100;
     const factor=1-pct;
-    return {promo:true,promoText:direct[0],promoQuantity:1,effectivePrice:price*factor,effectivePricePerKg:pricePerKg*factor};
+    return {promo:true,promoType:'DIRECT_DISCOUNT',promoText:`-${Math.round(pct*100)}% immédiat`,promoQuantity:1,effectivePrice:price*factor,effectivePricePerKg:pricePerKg*factor};
   }
   const promo=/promotion|promo|offert|remise|prix choc|avantage|voir l'offre/i.test(s);
-  return {promo,promoText:promo?'Promotion affichée':null,promoQuantity:null,effectivePrice:price,effectivePricePerKg:pricePerKg};
+  return {promo,promoType:promo?'OTHER':null,promoText:promo?'Promotion affichée (modalité non calculée)':null,promoQuantity:null,effectivePrice:price,effectivePricePerKg:pricePerKg};
 }
 
 function comparableKg(o) {
