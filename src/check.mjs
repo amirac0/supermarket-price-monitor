@@ -143,9 +143,10 @@ function comparisonKey(o) {
 
 function isValidProductMatch(product, text) {
   const s=String(text).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if (product.id==='lindt-creation' && (!/lindt/.test(s) || !/creation/.test(s))) return false;
   if (product.id==='ferrero-rocher' && !/ferrero.*rocher|rocher.*ferrero/.test(s)) return false;
   if (product.id==='raffaello' && !/raffaello/.test(s)) return false;
-  if (product.id==='nescafe-cappuccino' && (!/nescafe/.test(s) || !/cappuccino/.test(s))) return false;
+  if (product.id==='nescafe-cappuccino' && (!/nescafe/.test(s) || !/cappuccino/.test(s) || /dolce gusto|capsule/.test(s))) return false;
   return true;
 }
 
@@ -195,9 +196,25 @@ async function collectAuchan() {
       for (const query of product.queries) {
         const url='https://www.auchan.fr/recherche?text='+encodeURIComponent(query);
         try {
-          await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+          let nav=await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
           await page.waitForTimeout(2500);
-          console.log('AUCHAN PAGE:', page.url(), 'TITLE:', await page.title());
+          let title=await page.title();
+          if (nav?.status()===403 || title==='403') {
+            console.log('AUCHAN 403: refreshing Eaubonne Drive context before one retry');
+            await page.goto('https://www.auchan.fr/magasins/drive/auchan-drive-supermarche-eaubonne/s-6159',{waitUntil:'domcontentloaded',timeout:30000});
+            await page.waitForTimeout(1200);
+            const chooseRetry=page.getByText(/Choisir ce Drive/i).first();
+            if (await chooseRetry.count()) await chooseRetry.click({timeout:8000}).catch(()=>{});
+            await page.waitForTimeout(1200);
+            nav=await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+            await page.waitForTimeout(2000);
+            title=await page.title();
+          }
+          console.log('AUCHAN PAGE:', page.url(), 'TITLE:', title);
+          if (nav?.status()===403 || title==='403') {
+            console.log('AUCHAN BLOCKED 403:',query);
+            continue;
+          }
           const storage=await page.evaluate(() => ({
             local:Object.fromEntries(Object.entries(localStorage)),
             session:Object.fromEntries(Object.entries(sessionStorage))
