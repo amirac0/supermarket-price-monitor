@@ -99,6 +99,27 @@ function gtinFromUrl(url) {
   return null;
 }
 
+async function gtinFromProductPage(page, url) {
+  if (!url || !/auchan\.fr\/.*\/pr-C/i.test(url)) return null;
+  try {
+    const response=await page.request.get(url,{timeout:15000});
+    if (!response.ok()) return null;
+    const html=await response.text();
+    const patterns=[
+      /(?:GTIN|EAN|Réf\s*\/\s*EAN)[^0-9]{0,80}(\d{13,14})/i,
+      /"(?:gtin|gtin13|ean|ean13)"\s*:\s*"?(\d{13,14})"?/i
+    ];
+    for (const re of patterns) {
+      const m=html.match(re);
+      const g=validGtin(m?.[1]);
+      if (g) return g;
+    }
+  } catch(e) {
+    console.log('AUCHAN GTIN lookup failed:',url,e.message);
+  }
+  return null;
+}
+
 function comparisonKey(o) {
   if (o.gtin) return `gtin:${o.gtin}`;
   if (o.comparisonKey) return o.comparisonKey;
@@ -218,7 +239,8 @@ async function collectAuchan() {
             const promotion=parsePromotion(text,price,priceKg);
             const variantName=text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x) && x.length>6) || product.name;
             const offerUrl=card.href||page.url();
-            const gtin=gtinFromUrl(offerUrl);
+            const gtin=gtinFromUrl(offerUrl) || await gtinFromProductPage(page,offerUrl);
+            if (gtin) console.log('AUCHAN GTIN:',variantName,gtin);
             const cmpKey=comparisonKey({productId:product.id,variantName,gtin});
             if (!offers.some(o=>o.store===store.name && (o.url===offerUrl || (o.comparisonKey===cmpKey && Math.abs(o.price-price)<0.001)))) {
               offers.push({productId:product.id,productName:product.name,variantName,gtin,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url:offerUrl});
