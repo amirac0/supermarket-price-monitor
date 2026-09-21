@@ -99,25 +99,39 @@ function gtinFromUrl(url) {
   return null;
 }
 
-async function gtinFromProductPage(page, url) {
-  if (!url || !/auchan\.fr\/.*\/pr-C/i.test(url)) return null;
+async function auchanProductMeta(page, url) {
+  if (!url || !/auchan\.fr\/.*\/pr-C/i.test(url)) return {};
   try {
     const response=await page.request.get(url,{timeout:15000});
-    if (!response.ok()) return null;
+    if (!response.ok()) return {};
     const html=await response.text();
+    let gtin=null;
     const patterns=[
       /(?:GTIN|EAN|Réf\s*\/\s*EAN)[^0-9]{0,80}(\d{13,14})/i,
       /"(?:gtin|gtin13|ean|ean13)"\s*:\s*"?(\d{13,14})"?/i
     ];
     for (const re of patterns) {
       const m=html.match(re);
-      const g=validGtin(m?.[1]);
-      if (g) return g;
+      gtin=validGtin(m?.[1]);
+      if (gtin) break;
     }
+    const priceCandidates=[
+      html.match(/"price"\s*:\s*"?([0-9]+(?:[.,][0-9]+)?)"?/i)?.[1],
+      html.match(/"currentPrice"\s*:\s*"?([0-9]+(?:[.,][0-9]+)?)"?/i),
+      html.match(/"salePrice"\s*:\s*"?([0-9]+(?:[.,][0-9]+)?)"?/i)
+    ].filter(Boolean).map(x=>Number(String(x).replace(',','.'))).filter(x=>x>0&&x<500);
+    const price=priceCandidates[0]??null;
+    const kgMatch=html.match(/"unitPrice"\s*:\s*"?([0-9]+(?:[.,][0-9]+)?)"?/i);
+    const pricePerKg=kgMatch?Number(kgMatch[1].replace(',','.')):null;
+    return {gtin,price,pricePerKg};
   } catch(e) {
-    console.log('AUCHAN GTIN lookup failed:',url,e.message);
+    console.log('AUCHAN product metadata failed:',url,e.message);
+    return {};
   }
-  return null;
+}
+
+async function gtinFromProductPage(page, url) {
+  return (await auchanProductMeta(page,url)).gtin||null;
 }
 
 function comparisonKey(o) {
