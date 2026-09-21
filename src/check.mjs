@@ -81,7 +81,26 @@ function comparableKg(o) {
   return Number.isFinite(o.effectivePricePerKg) ? o.effectivePricePerKg : o.pricePerKg;
 }
 
+function validGtin(value) {
+  const digits=String(value||'').replace(/\D/g,'');
+  if (![8,12,13,14].includes(digits.length)) return null;
+  const body=digits.slice(0,-1).split('').reverse();
+  const sum=body.reduce((acc,d,i)=>acc+Number(d)*(i%2===0?3:1),0);
+  const check=(10-(sum%10))%10;
+  return check===Number(digits.at(-1)) ? digits : null;
+}
+
+function gtinFromUrl(url) {
+  const candidates=String(url||'').match(/(?:^|\D)(\d{8}|\d{12,14})(?:\D|$)/g)||[];
+  for (const raw of candidates) {
+    const g=validGtin(raw.replace(/\D/g,''));
+    if (g) return g;
+  }
+  return null;
+}
+
 function comparisonKey(o) {
+  if (o.gtin) return `gtin:${o.gtin}`;
   if (o.comparisonKey) return o.comparisonKey;
   const s=String(o.variantName||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const form=/oeuf/.test(s)?'oeuf':/tablette/.test(s)?'tablette':/barre/.test(s)?'barre':/cereale/.test(s)?'cereales':/bonbon/.test(s)?'bonbons':'standard';
@@ -198,10 +217,11 @@ async function collectAuchan() {
             if (!isValidProductMatch(product,text)) continue;
             const promotion=parsePromotion(text,price,priceKg);
             const variantName=text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x) && x.length>6) || product.name;
-            const cmpKey=comparisonKey({productId:product.id,variantName});
             const offerUrl=card.href||page.url();
+            const gtin=gtinFromUrl(offerUrl);
+            const cmpKey=comparisonKey({productId:product.id,variantName,gtin});
             if (!offers.some(o=>o.store===store.name && (o.url===offerUrl || (o.comparisonKey===cmpKey && Math.abs(o.price-price)<0.001)))) {
-              offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url:offerUrl});
+              offers.push({productId:product.id,productName:product.name,variantName,gtin,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url:offerUrl});
               console.log('AUCHAN VERIFIED CARD:',variantName,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'',card.href||'');
             }
             matched=true;
@@ -273,10 +293,11 @@ async function collectCarrefour() {
           }
 
           const variantName=row.title || product.name;
-          const cmpKey=comparisonKey({productId:product.id,variantName});
           const offerUrl=row.url||store.storePage||'';
+          const gtin=validGtin(row.gtin ?? row.ean ?? row.ean13 ?? row.barcode ?? row.product_code) || gtinFromUrl(offerUrl);
+          const cmpKey=comparisonKey({productId:product.id,variantName,gtin});
           if (!offers.some(o=>o.store===store.name && o.comparisonKey===cmpKey && o.url===offerUrl)) {
-            offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:unit,...promotion,url:offerUrl});
+            offers.push({productId:product.id,productName:product.name,variantName,gtin,comparisonKey:cmpKey,store:store.name,price,pricePerKg:unit,...promotion,url:offerUrl});
             console.log('CARREFOUR VERIFIED API:',variantName,price,unit,promotion.promo?('PROMO '+promotion.promoText):'',row.url||'');
           }
           matched=true;
@@ -331,8 +352,10 @@ async function collectStoreWeb(chain, startUrl, searchUrlFor) {
             if (!price || !priceKg) continue;
             const promotion=parsePromotion(text,price,priceKg);
             const variantName=text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x)&&x.length>6)||product.name;
-            const cmpKey=comparisonKey({productId:product.id,variantName});
-            offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
+            const offerUrl=card.href||page.url();
+            const gtin=gtinFromUrl(offerUrl);
+            const cmpKey=comparisonKey({productId:product.id,variantName,gtin});
+            offers.push({productId:product.id,productName:product.name,variantName,gtin,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url:offerUrl});
             console.log(chain.toUpperCase(),'VERIFIED:',variantName,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'');
             found=true; break;
           }
@@ -378,6 +401,7 @@ async function sendEmail(deals) {
   const body=deals.map(d=>{
     const title=d.variantName && d.variantName!==d.productName ? `${d.productName} — ${d.variantName}` : d.productName;
     const lines=[title,d.store,`Prix affiché : ${d.price.toFixed(2)} € — ${d.pricePerKg.toFixed(2)} €/kg`];
+    if (d.gtin) lines.push(`EAN/GTIN : ${d.gtin}`);
     if (d.promo) {
       lines.push(`Promo : ${d.promoText||'promotion affichée'}`);
       if (Number.isFinite(d.effectivePrice) && Math.abs(d.effectivePrice-d.price)>0.001) {
