@@ -367,6 +367,18 @@ async function collectCarrefour() {
         }
         const payload=await response.json();
         const rows=payload?.data?.results || [];
+        // ReefAPI can omit normalized promotion fields even when Carrefour displays
+        // an offer. Inspect only promo-shaped product fields (never credentials).
+        if (product.id === 'lindt-creation') {
+          const promoDebug=rows.slice(0,8).map(row=>{
+            const picked={};
+            for (const [k,v] of Object.entries(row||{})) {
+              if (/promo|offer|discount|loyal|advantage|deal|campaign|operation|was_price|price/i.test(k)) picked[k]=v;
+            }
+            return {title:row?.title,gtin:row?.gtin??row?.ean??row?.ean13??row?.barcode??row?.product_code,promo:picked};
+          });
+          console.log('CARREFOUR LINDT PROMO DEBUG:',JSON.stringify(promoDebug).slice(0,12000));
+        }
         let matched=false;
         for (const row of rows) {
           const text=[row.title,row.brand,row.packaging].filter(Boolean).join(' ');
