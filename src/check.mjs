@@ -179,10 +179,81 @@ async function collectAuchan() {
   return offers;
 }
 
+async function collectCarrefour() {
+  const store=stores.find(s=>s.chain==='Carrefour' && s.enabled!==false);
+  if (!store) return [];
+  const browser=await chromium.launch({headless:true});
+  const offers=[];
+  try {
+    const page=await browser.newPage({locale:'fr-FR'});
+    try {
+      const driveUrl='https://www.carrefour.fr/magasin/ermont/drive';
+      await page.goto(driveUrl,{waitUntil:'domcontentloaded',timeout:30000});
+      await page.waitForTimeout(1800);
+      const choose=page.getByText(/Choisir ce drive/i).first();
+      if (await choose.count()) {
+        await choose.click({timeout:10000}).catch(()=>{});
+        await page.waitForTimeout(1800);
+      }
+      console.log('CARREFOUR DRIVE context:',page.url());
+    } catch(e) {
+      console.log('CARREFOUR DRIVE selection failed:',e.message);
+    }
+
+    for (const product of products) {
+      for (const query of product.queries) {
+        const urls=[
+          'https://www.carrefour.fr/s?q='+encodeURIComponent(query),
+          'https://www.carrefour.fr/recherche?query='+encodeURIComponent(query)
+        ];
+        let matched=false;
+        for (const url of urls) {
+          try {
+            await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+            await page.waitForTimeout(2200);
+            const cards=await page.locator('article, [data-testid*="product"], [class*="product-card"], [class*="productCard"], [class*="product"]').evaluateAll(nodes =>
+              nodes.slice(0,100).map(n=>({
+                text:(n.innerText||'').replace(/\\s+/g,' ').trim(),
+                href:n.querySelector('a[href]')?.href||''
+              })).filter(x=>x.text)
+            ).catch(()=>[]);
+            console.log('CARREFOUR CARDS:',product.name,'count=',cards.length);
+            console.log('CARREFOUR CARD SAMPLES:',JSON.stringify(cards.slice(0,5)).slice(0,5000));
+            for (const card of cards) {
+              const text=card.text;
+              const price=parseEuro(text);
+              const priceKg=parseKg(text);
+              if (!price || !priceKg) continue;
+              const normalized=text.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');
+              const tokens=query.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').split(/[^a-z0-9]+/).filter(t=>t.length>=4);
+              const distinctive=tokens.filter(t=>!['cappuccino','nescafe','chocolat','cereales','ferrero'].includes(t));
+              const required=distinctive.length ? distinctive : tokens;
+              if (required.length && !required.some(t=>normalized.includes(t))) continue;
+              if (product.id==='ferrero-rocher' && /oeuf|tablette/i.test(text)) continue;
+              if (product.id==='raffaello' && /tablette/i.test(text)) continue;
+              const promotion=parsePromotion(text,price,priceKg);
+              offers.push({productId:product.id,productName:product.name,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
+              console.log('CARREFOUR VERIFIED CARD:',product.name,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'',card.href||'');
+              matched=true;
+              break;
+            }
+          } catch(e) {
+            console.log('CARREFOUR failed:',product.name,e.message);
+          }
+          if (matched) break;
+        }
+        if (matched) break;
+      }
+    }
+  } finally { await browser.close(); }
+  return offers;
+}
+
 async function collectOffers() {
   const offers=[];
   console.log(`Monitoring ${products.length} product groups across ${stores.length} configured stores.`);
   offers.push(...await collectAuchan());
+  offers.push(...await collectCarrefour());
   return offers;
 }
 
