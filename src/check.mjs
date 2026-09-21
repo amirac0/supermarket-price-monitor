@@ -277,11 +277,81 @@ async function collectCarrefour() {
   return offers;
 }
 
+async function collectStoreWeb(chain, startUrl, searchUrlFor) {
+  const store=stores.find(s=>s.chain===chain && s.enabled!==false);
+  if (!store) return [];
+  const browser=await chromium.launch({headless:true});
+  const offers=[];
+  try {
+    const page=await browser.newPage({locale:'fr-FR'});
+    try {
+      await page.goto(startUrl,{waitUntil:'domcontentloaded',timeout:30000});
+      await page.waitForTimeout(1800);
+      console.log(chain.toUpperCase(),'STORE PAGE:',page.url(),'TITLE:',await page.title());
+    } catch(e) { console.log(chain.toUpperCase(),'store context failed:',e.message); }
+
+    for (const product of products) {
+      let found=false;
+      for (const query of product.queries) {
+        try {
+          await page.goto(searchUrlFor(query),{waitUntil:'domcontentloaded',timeout:30000});
+          await page.waitForTimeout(2200);
+          const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
+          if (/formalite|formalité|si vous êtes un humain|access denied|captcha/i.test(body)) {
+            console.log(chain.toUpperCase(),'BLOCKED:',page.url());
+            return offers;
+          }
+          const cards=await page.locator('article, li, [role="listitem"], [data-testid], [class*="product"], [class*="Product"], [class*="tile"], [class*="card"]').evaluateAll(nodes=>nodes.slice(0,300).map(n=>({
+            text:(n.innerText||'').replace(/\\s+/g,' ').trim(),
+            href:n.querySelector('a[href]')?.href||''
+          })).filter(x=>x.text && /€/.test(x.text) && x.text.length<1800)).catch(()=>[]);
+          console.log(chain.toUpperCase(),'CARDS:',product.name,'count=',cards.length);
+          for (const card of cards) {
+            const text=card.text;
+            if (!isValidProductMatch(product,text)) continue;
+            const normalized=text.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');
+            const tokens=query.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').split(/[^a-z0-9]+/).filter(t=>t.length>=4);
+            if (tokens.length && !tokens.some(t=>normalized.includes(t))) continue;
+            const price=parseEuro(text), priceKg=parseKg(text);
+            if (!price || !priceKg) continue;
+            const promotion=parsePromotion(text,price,priceKg);
+            const variantName=text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x)&&x.length>6)||product.name;
+            offers.push({productId:product.id,productName:product.name,variantName,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
+            console.log(chain.toUpperCase(),'VERIFIED:',variantName,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'');
+            found=true; break;
+          }
+        } catch(e) { console.log(chain.toUpperCase(),'failed:',product.name,e.message); }
+        if(found) break;
+      }
+    }
+  } finally { await browser.close(); }
+  return offers;
+}
+
+async function collectIntermarche() {
+  return collectStoreWeb('Intermarché',
+    'https://www.intermarche.com/magasins/07088/ermont-95120/infos-pratiques',
+    q=>'https://www.intermarche.com/recherche/'+encodeURIComponent(q));
+}
+async function collectLeclerc() {
+  return collectStoreWeb('E.Leclerc',
+    'https://www.leclercdrive.fr/region-ile-de-france/taverny/drive-saint-prix.aspx',
+    q=>'https://www.leclercdrive.fr/recherche.aspx?TexteRecherche='+encodeURIComponent(q));
+}
+async function collectMonoprix() {
+  return collectStoreWeb('Monoprix',
+    'https://courses.monoprix.fr/',
+    q=>'https://courses.monoprix.fr/search?text='+encodeURIComponent(q));
+}
+
 async function collectOffers() {
   const offers=[];
   console.log(`Monitoring ${products.length} product groups across ${stores.length} configured stores.`);
   offers.push(...await collectAuchan());
   offers.push(...await collectCarrefour());
+  offers.push(...await collectIntermarche());
+  offers.push(...await collectLeclerc());
+  offers.push(...await collectMonoprix());
   return offers;
 }
 
