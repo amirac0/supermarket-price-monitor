@@ -82,11 +82,26 @@ function comparableKg(o) {
 }
 
 function comparisonKey(o) {
-  if (o.productId !== 'lindt-creation') return o.productId;
   const s=String(o.variantName||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-  const flavors=['cookie dough','creme brulee','creme brûlee','fondant','praline','pistache','noisette','caramel','citron','menthe','orange'];
-  const flavor=flavors.find(x=>s.includes(x.normalize('NFD').replace(/[\u0300-\u036f]/g,'')));
-  return flavor ? `${o.productId}:${flavor.normalize('NFD').replace(/[\u0300-\u036f]/g,'')}` : `${o.productId}:${s.replace(/\b(lindt|creation|tablette|de|chocolat|au|lait|noir|blanc)\b/g,' ').replace(/\s+/g,' ').trim()}`;
+  if (o.productId === 'lindt-creation') {
+    const flavors=['cookie dough','creme brulee','fondant','praline','pistache','noisette','caramel','citron','menthe','orange'];
+    const flavor=flavors.find(x=>s.includes(x));
+    return flavor ? `${o.productId}:${flavor}` : `${o.productId}:${s.replace(/\b(lindt|creation|tablette|de|chocolat|au|lait|noir|blanc)\b/g,' ').replace(/\s+/g,' ').trim()}`;
+  }
+  if (o.productId === 'nescafe-cappuccino') {
+    const flavors=['kitkat','vanille','chocolat blanc','noisette','praline','caramel beurre sale'];
+    const flavor=flavors.find(x=>s.includes(x));
+    return `${o.productId}:${flavor||'classique'}`;
+  }
+  return o.productId;
+}
+
+function isValidProductMatch(product, text) {
+  const s=String(text).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  if (product.id==='ferrero-rocher' && (!/ferrero.*rocher|rocher.*ferrero/.test(s) || /oeuf|tablette/.test(s))) return false;
+  if (product.id==='raffaello' && (!/raffaello/.test(s) || /tablette/.test(s))) return false;
+  if (product.id==='nescafe-cappuccino' && (!/nescafe/.test(s) || !/cappuccino/.test(s))) return false;
+  return true;
 }
 
 async function collectAuchan() {
@@ -171,6 +186,7 @@ async function collectAuchan() {
             const needed=tokens.length<=2 ? tokens.length : Math.max(2, Math.ceil(tokens.length*0.6));
             if (tokens.length && hits < needed) continue;
 
+            if (!isValidProductMatch(product,text)) continue;
             const promotion=parsePromotion(text,price,priceKg);
             const variantName=text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x) && x.length>6) || product.name;
             offers.push({productId:product.id,productName:product.name,variantName,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
@@ -225,8 +241,7 @@ async function collectCarrefour() {
           const distinctive=tokens.filter(t=>!['cappuccino','nescafe','chocolat','cereales','ferrero'].includes(t));
           const required=distinctive.length ? distinctive : tokens;
           if (required.length && !required.some(t=>normalized.includes(t))) continue;
-          if (product.id==='ferrero-rocher' && /oeuf|tablette/i.test(text)) continue;
-          if (product.id==='raffaello' && /tablette/i.test(text)) continue;
+          if (!isValidProductMatch(product,text)) continue;
 
           const price=Number(row.price?.value ?? row.price ?? row.current_price);
           const unit=Number(row.unit_price?.value ?? row.unit_price ?? row.price_per_unit);
