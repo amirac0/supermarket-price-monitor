@@ -18,12 +18,14 @@ export function median(values) {
 }
 export function findDeals(offers) {
   return offers.filter(o => {
+    const current=comparableKg(o);
+    const others=offers.filter(x=>x.productId===o.productId && x.store!==o.store && Number.isFinite(comparableKg(x))).map(x=>comparableKg(x));
+    if (others.length) {
+      o.referencePricePerKg=median(others);
+      o.discountVsMedian=Number.isFinite(current) ? 1-current/o.referencePricePerKg : null;
+    }
     if (o.promo === true) return true;
-    const others=offers.filter(x=>x.productId===o.productId && x.store!==o.store && Number.isFinite(x.pricePerKg)).map(x=>x.pricePerKg);
-    if (others.length < 3 || !Number.isFinite(o.pricePerKg)) return false;
-    const ref=median(others);
-    o.referencePricePerKg=ref;
-    o.discountVsMedian=1-o.pricePerKg/ref;
+    if (others.length < 3 || !Number.isFinite(current)) return false;
     return o.discountVsMedian >= THRESHOLD;
   });
 }
@@ -46,6 +48,36 @@ function parseEuro(text) {
 function parseKg(text) {
   const m=String(text).replace(/\s/g,' ').match(/(\d+[,.]\d{1,2})\s*€\s*\/\s*kg/i);
   return m ? Number(m[1].replace(',','.')) : null;
+}
+
+function parsePromotion(text, price, pricePerKg) {
+  const s=String(text).replace(/\s+/g,' ').trim();
+  const second=s.match(/(?:le\s*)?2(?:e|ème|eme)\s*(?:à|a)?\s*-\s*(\d{1,2})\s*%/i);
+  if (second) {
+    const pct=Number(second[1])/100;
+    const factor=(2-pct)/2;
+    return {promo:true,promoText:second[0],promoQuantity:2,effectivePrice:price*factor,effectivePricePerKg:pricePerKg*factor};
+  }
+  const oneFree=s.match(/(\d+)\s*\+\s*(\d+)\s*(?:offert|gratuits?)/i);
+  if (oneFree) {
+    const paid=Number(oneFree[1]), free=Number(oneFree[2]), total=paid+free;
+    if (paid>0 && total>paid) {
+      const factor=paid/total;
+      return {promo:true,promoText:oneFree[0],promoQuantity:total,effectivePrice:price*factor,effectivePricePerKg:pricePerKg*factor};
+    }
+  }
+  const direct=s.match(/-\s*(\d{1,2})\s*%/);
+  if (direct) {
+    const pct=Number(direct[1])/100;
+    const factor=1-pct;
+    return {promo:true,promoText:direct[0],promoQuantity:1,effectivePrice:price*factor,effectivePricePerKg:pricePerKg*factor};
+  }
+  const promo=/promotion|promo|offert|remise|prix choc|avantage|voir l'offre/i.test(s);
+  return {promo,promoText:promo?'Promotion affichée':null,promoQuantity:null,effectivePrice:price,effectivePricePerKg:pricePerKg};
+}
+
+function comparableKg(o) {
+  return Number.isFinite(o.effectivePricePerKg) ? o.effectivePricePerKg : o.pricePerKg;
 }
 
 async function collectAuchan() {
@@ -130,9 +162,9 @@ async function collectAuchan() {
             const needed=tokens.length<=2 ? tokens.length : Math.max(2, Math.ceil(tokens.length*0.6));
             if (tokens.length && hits < needed) continue;
 
-            const promo=/promotion|promo|%|offert|remise|prix choc|avantage/i.test(text);
-            offers.push({productId:product.id,productName:product.name,store:store.name,price,pricePerKg:priceKg,promo,url:card.href||page.url()});
-            console.log('AUCHAN VERIFIED CARD:',product.name,price,priceKg,promo?'PROMO':'',card.href||'');
+            const promotion=parsePromotion(text,price,priceKg);
+            offers.push({productId:product.id,productName:product.name,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
+            console.log('AUCHAN VERIFIED CARD:',product.name,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'',card.href||'');
             matched=true;
             break;
           }
@@ -158,7 +190,28 @@ async function sendEmail(deals) {
   if (!deals.length || process.env.SEND_EMAIL !== 'true') return;
   const required=n=>{if(!process.env[n]) throw new Error(`Missing secret: ${n}`); return process.env[n];};
   const transporter=nodemailer.createTransport({host:required('SMTP_HOST'),port:Number(process.env.SMTP_PORT||465),secure:String(process.env.SMTP_SECURE||'true').toLowerCase()==='true',auth:{user:required('SMTP_USER'),pass:required('SMTP_PASS')}});
-  const body=deals.map(d=>[d.productName,d.store,`${d.price.toFixed(2)} € — ${d.pricePerKg.toFixed(2)} €/kg`,d.promo?'PROMOTION':`-${(d.discountVsMedian*100).toFixed(1)} % vs médiane`,d.url||''].join('\n')).join('\n\n');
+  const body=deals.map(d=>{
+    const lines=[d.productName,d.store,`Prix affiché : ${d.price.toFixed(2)} € — ${d.pricePerKg.toFixed(2)} €/kg`];
+    if (d.promo) {
+      lines.push(`Promo : ${d.promoText||'promotion affichée'}`);
+      if (Number.isFinite(d.effectivePrice) && Math.abs(d.effectivePrice-d.price)>0.001) {
+        lines.push(`Prix effectif promo : ${d.effectivePrice.toFixed(2)} € / unité — ${d.effectivePricePerKg.toFixed(2)} €/kg${d.promoQuantity? ` (achat de ${d.promoQuantity})`:''}`);
+      }
+    }
+    const competitors=offers.filter(x=>x.productId===d.productId && x.store!==d.store && Number.isFinite(comparableKg(x))).sort((a,b)=>comparableKg(a)-comparableKg(b));
+    if (competitors.length) {
+      lines.push('', 'Comparaison autres magasins :');
+      for (const x of competitors) lines.push(`- ${x.store}: ${x.price.toFixed(2)} € — ${comparableKg(x).toFixed(2)} €/kg${x.promo?' (promo)':''}`);
+      if (Number.isFinite(d.referencePricePerKg) && Number.isFinite(d.discountVsMedian)) {
+        const pct=Math.abs(d.discountVsMedian*100).toFixed(1);
+        lines.push(`Médiane autres magasins : ${d.referencePricePerKg.toFixed(2)} €/kg — cette offre est ${d.discountVsMedian>=0?pct+' % moins chère':pct+' % plus chère'}.`);
+      }
+    } else {
+      lines.push('', 'Comparaison : aucun autre prix local vérifié disponible pour ce produit.');
+    }
+    lines.push(d.url||'');
+    return lines.join('\n');
+  }).join('\n\n--------------------\n\n');
   await transporter.sendMail({from:process.env.SMTP_FROM||process.env.SMTP_USER,to:required('ALERT_EMAIL'),subject:`🔥 ${deals.length} bonne(s) affaire(s) détectée(s)`,text:body});
 }
 
