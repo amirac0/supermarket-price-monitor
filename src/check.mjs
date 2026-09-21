@@ -19,12 +19,20 @@ export function median(values) {
 export function findDeals(offers) {
   return offers.filter(o => {
     const current=comparableKg(o);
-    const others=offers.filter(x=>comparisonKey(x)===comparisonKey(o) && x.store!==o.store && Number.isFinite(comparableKg(x))).map(x=>comparableKg(x));
+    const same=offers.filter(x=>comparisonKey(x)===comparisonKey(o) && x.store!==o.store && Number.isFinite(comparableKg(x)));
+    const byStore=new Map();
+    for (const x of same) {
+      const value=comparableKg(x);
+      if (!byStore.has(x.store) || value < byStore.get(x.store)) byStore.set(x.store,value);
+    }
+    const others=[...byStore.values()];
     if (others.length) {
       o.referencePricePerKg=median(others);
       o.discountVsMedian=Number.isFinite(current) ? 1-current/o.referencePricePerKg : null;
     }
+    // Any explicit promotion remains an alert even without enough competitors.
     if (o.promo === true) return true;
+    // The 30% rule requires three DISTINCT other stores.
     if (others.length < 3 || !Number.isFinite(current)) return false;
     return o.discountVsMedian >= THRESHOLD;
   });
@@ -135,8 +143,9 @@ async function gtinFromProductPage(page, url) {
 }
 
 function comparisonKey(o) {
-  if (o.gtin) return `gtin:${o.gtin}`;
-  if (o.comparisonKey) return o.comparisonKey;
+  // GTIN identifies an exact sellable reference, but comparison is intentionally
+  // based on the same product/variant/form so different pack sizes remain comparable in €/kg.
+  if (o.comparisonKey && !String(o.comparisonKey).startsWith('gtin:')) return o.comparisonKey;
   const s=String(o.variantName||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const form=/oeuf/.test(s)?'oeuf':/tablette/.test(s)?'tablette':/barre/.test(s)?'barre':/cereale/.test(s)?'cereales':/bonbon/.test(s)?'bonbons':'standard';
   if (o.productId === 'lindt-creation') {
@@ -319,7 +328,7 @@ async function lookupAuchanByGtins(gtins) {
           if (!price || !priceKg) continue;
           const promotion=parsePromotion(card.text,price,priceKg);
           const variantName=card.text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x)&&x.length>6)||item.productName;
-          offers.push({productId:item.productId,productName:item.productName,variantName,gtin:item.gtin,comparisonKey:`gtin:${item.gtin}`,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href});
+          offers.push({productId:item.productId,productName:item.productName,variantName,gtin:item.gtin,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href});
           console.log('AUCHAN GTIN LOOKUP VERIFIED:',item.gtin,variantName,price,priceKg,card.href);
           found=true; break;
         }
