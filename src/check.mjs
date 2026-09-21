@@ -341,22 +341,20 @@ async function lookupAuchanByGtins(gtins) {
 
 async function fetchCarrefourPagePromotion(url, price, unit) {
   if (!url || !/^https:\/\/www\.carrefour\.fr\/p\//i.test(url)) return null;
+  const browser=await chromium.launch({headless:true});
   try {
-    const response=await fetch(url,{headers:{'user-agent':'Mozilla/5.0 (compatible; supermarket-price-monitor/1.0)','accept-language':'fr-FR,fr;q=0.9'}});
-    if (!response.ok) {
-      console.log('CARREFOUR PAGE PROMO HTTP:',response.status,url);
+    const page=await browser.newPage({
+      locale:'fr-FR',
+      userAgent:'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36'
+    });
+    await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+    await page.waitForTimeout(2500);
+    const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
+    if (/formalit[eé]|si vous êtes un humain|access denied|captcha/i.test(body)) {
+      console.log('CARREFOUR PAGE PROMO BLOCKED:',url);
       return null;
     }
-    const html=await response.text();
-    const text=html
-      .replace(/<script[^>]*>[\\s\\S]*?<\/script>/gi,' ')
-      .replace(/<style[^>]*>[\\s\\S]*?<\/style>/gi,' ')
-      .replace(/<[^>]+>/g,' ')
-      .replace(/&nbsp;|&#160;/gi,' ')
-      .replace(/&euro;|&#8364;/gi,'€')
-      .replace(/&egrave;/gi,'è').replace(/&eacute;/gi,'é')
-      .replace(/\\s+/g,' ').trim();
-    const promotion=parsePromotion(text,price,unit);
+    const promotion=parsePromotion(body,price,unit);
     if (promotion.promo) {
       console.log('CARREFOUR PAGE PROMO:',promotion.promoText,url);
       return promotion;
@@ -364,6 +362,8 @@ async function fetchCarrefourPagePromotion(url, price, unit) {
     console.log('CARREFOUR PAGE PROMO NONE:',url);
   } catch(e) {
     console.log('CARREFOUR PAGE PROMO ERROR:',e.message,url);
+  } finally {
+    await browser.close();
   }
   return null;
 }
