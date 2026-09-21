@@ -29,8 +29,19 @@ export function findDeals(offers) {
 }
 
 function parseEuro(text) {
-  const m=String(text).replace(/\s/g,' ').match(/(\d+[,.]\d{2})\s*€/);
-  return m ? Number(m[1].replace(',','.')) : null;
+  const s=String(text).replace(/\s/g,' ');
+  const matches=[...s.matchAll(/(\d+[,.]\d{2})\s*€/g)].map(m=>({value:Number(m[1].replace(',','.')),index:m.index??0,raw:m[0]}));
+  if (!matches.length) return null;
+  const driveIndex=s.toLowerCase().lastIndexOf('dans mon drive');
+  if (driveIndex >= 0) {
+    const after=matches.find(m=>m.index>driveIndex);
+    if (after) return after.value;
+  }
+  for (const m of matches) {
+    const tail=s.slice(m.index+m.raw.length,m.index+m.raw.length+8);
+    if (!/^\s*\/\s*kg/i.test(tail)) return m.value;
+  }
+  return matches.at(-1).value;
 }
 function parseKg(text) {
   const m=String(text).replace(/\s/g,' ').match(/(\d+[,.]\d{1,2})\s*€\s*\/\s*kg/i);
@@ -111,10 +122,13 @@ async function collectAuchan() {
             const price=parseEuro(text);
             if (!price || !priceKg) continue;
 
-            // Require at least one meaningful query token in the same card.
-            const tokens=query.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').split(/\\s+/).filter(t=>t.length>=4);
+            // Require meaningful query coverage in the same card.
+            const stop=new Set(['avec','sans','pour','dans','saveur','gout','gouts','chocolat']);
+            const tokens=query.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').split(/[^a-z0-9]+/).filter(t=>t.length>=4 && !stop.has(t));
             const normalized=text.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');
-            if (tokens.length && !tokens.some(t=>normalized.includes(t))) continue;
+            const hits=tokens.filter(t=>normalized.includes(t)).length;
+            const needed=tokens.length<=2 ? tokens.length : Math.max(2, Math.ceil(tokens.length*0.6));
+            if (tokens.length && hits < needed) continue;
 
             const promo=/promotion|promo|%|offert|remise|prix choc|avantage/i.test(text);
             offers.push({productId:product.id,productName:product.name,store:store.name,price,pricePerKg:priceKg,promo,url:card.href||page.url()});
