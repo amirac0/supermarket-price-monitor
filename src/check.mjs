@@ -1,5 +1,6 @@
 import fs from 'node:fs/promises';
 import nodemailer from 'nodemailer';
+import { chromium } from 'playwright';
 
 const products = JSON.parse(await fs.readFile(new URL('../config/products.json', import.meta.url)));
 const stores = JSON.parse(await fs.readFile(new URL('../config/stores.json', import.meta.url)));
@@ -27,35 +28,63 @@ export function findDeals(offers) {
   });
 }
 
-// Collectors are deliberately conservative: a chain is enabled only after its
-// local store/product pages have been validated. No price is invented.
+function parseEuro(text) {
+  const m=String(text).replace(/\s/g,' ').match(/(\d+[,.]\d{2})\s*€/);
+  return m ? Number(m[1].replace(',','.')) : null;
+}
+function parseKg(text) {
+  const m=String(text).replace(/\s/g,' ').match(/(\d+[,.]\d{1,2})\s*€\s*\/\s*kg/i);
+  return m ? Number(m[1].replace(',','.')) : null;
+}
+
+async function collectAuchan() {
+  const store=stores.find(s=>s.chain==='Auchan');
+  if (!store) return [];
+  const browser=await chromium.launch({headless:true});
+  const offers=[];
+  try {
+    const page=await browser.newPage({locale:'fr-FR'});
+    for (const product of products) {
+      for (const query of product.queries) {
+        const url='https://www.auchan.fr/recherche?text='+encodeURIComponent(query);
+        try {
+          await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+          await page.waitForTimeout(1500);
+          const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ');
+          const priceKg=parseKg(body);
+          const price=parseEuro(body);
+          const promo=/promotion|promo|%|offert/i.test(body);
+          if (price && priceKg) {
+            offers.push({productId:product.id,productName:product.name,store:store.name,price,pricePerKg:priceKg,promo,url:page.url()});
+            console.log('AUCHAN',product.name,price,priceKg,promo?'PROMO':'');
+            break;
+          }
+          console.log('AUCHAN no verified local price:',product.name,query);
+        } catch(e) {
+          console.log('AUCHAN failed:',product.name,e.message);
+        }
+      }
+    }
+  } finally { await browser.close(); }
+  return offers;
+}
+
 async function collectOffers() {
   const offers=[];
   console.log(`Monitoring ${products.length} product groups across ${stores.length} configured stores.`);
-  console.log('Collectors are in validation mode; unavailable/unverified prices are skipped.');
+  offers.push(...await collectAuchan());
   return offers;
 }
 
 async function sendEmail(deals) {
   if (!deals.length || process.env.SEND_EMAIL !== 'true') return;
   const required=n=>{if(!process.env[n]) throw new Error(`Missing secret: ${n}`); return process.env[n];};
-  const transporter=nodemailer.createTransport({
-    host:required('SMTP_HOST'),port:Number(process.env.SMTP_PORT||465),
-    secure:String(process.env.SMTP_SECURE||'true').toLowerCase()==='true',
-    auth:{user:required('SMTP_USER'),pass:required('SMTP_PASS')}
-  });
-  const body=deals.map(d=>[
-    d.productName,d.store,
-    `${d.price.toFixed(2)} € — ${d.pricePerKg.toFixed(2)} €/kg`,
-    d.promo?'PROMOTION':`-${(d.discountVsMedian*100).toFixed(1)} % vs médiane`,
-    d.url||''
-  ].join('\n')).join('\n\n');
+  const transporter=nodemailer.createTransport({host:required('SMTP_HOST'),port:Number(process.env.SMTP_PORT||465),secure:String(process.env.SMTP_SECURE||'true').toLowerCase()==='true',auth:{user:required('SMTP_USER'),pass:required('SMTP_PASS')}});
+  const body=deals.map(d=>[d.productName,d.store,`${d.price.toFixed(2)} € — ${d.pricePerKg.toFixed(2)} €/kg`,d.promo?'PROMOTION':`-${(d.discountVsMedian*100).toFixed(1)} % vs médiane`,d.url||''].join('\n')).join('\n\n');
   await transporter.sendMail({from:process.env.SMTP_FROM||process.env.SMTP_USER,to:required('ALERT_EMAIL'),subject:`🔥 ${deals.length} bonne(s) affaire(s) détectée(s)`,text:body});
 }
 
-if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1]}`).href) {
-  const offers=await collectOffers();
-  const deals=findDeals(offers);
-  console.log(`${offers.length} offres vérifiées, ${deals.length} alertes.`);
-  await sendEmail(deals);
-}
+const offers=await collectOffers();
+const deals=findDeals(offers);
+console.log(`${offers.length} offres vérifiées, ${deals.length} alertes.`);
+await sendEmail(deals);
