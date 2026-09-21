@@ -277,6 +277,45 @@ async function collectAuchan() {
   return offers;
 }
 
+async function lookupAuchanByGtins(gtins) {
+  const store=stores.find(s=>s.chain==='Auchan' && s.enabled!==false);
+  if (!store || !gtins.length) return [];
+  const browser=await chromium.launch({headless:true});
+  const offers=[];
+  try {
+    const page=await browser.newPage({locale:'fr-FR'});
+    await page.goto('https://www.auchan.fr/magasins/drive/auchan-drive-supermarche-eaubonne/s-6159',{waitUntil:'domcontentloaded',timeout:30000});
+    await page.waitForTimeout(1200);
+    const choose=page.getByText(/Choisir ce Drive/i).first();
+    if (await choose.count()) await choose.click({timeout:8000}).catch(()=>{});
+    await page.waitForTimeout(1200);
+    for (const item of gtins) {
+      const url='https://www.auchan.fr/recherche?text='+encodeURIComponent(item.gtin);
+      try {
+        await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
+        await page.waitForTimeout(1800);
+        const cards=await page.locator('article, [data-testid*="product"], [class*="product-card"], [class*="productCard"], [class*="product"]').evaluateAll(nodes =>
+          nodes.slice(0,80).map(n=>({text:(n.innerText||'').replace(/\\s+/g,' ').trim(),href:n.querySelector('a[href]')?.href||''})).filter(x=>x.text&&x.href)
+        ).catch(()=>[]);
+        let found=false;
+        for (const card of cards) {
+          const pageGtin=gtinFromUrl(card.href) || await gtinFromProductPage(page,card.href);
+          if (pageGtin!==item.gtin) continue;
+          const price=parseEuro(card.text), priceKg=parseKg(card.text);
+          if (!price || !priceKg) continue;
+          const promotion=parsePromotion(card.text,price,priceKg);
+          const variantName=card.text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x)&&x.length>6)||item.productName;
+          offers.push({productId:item.productId,productName:item.productName,variantName,gtin:item.gtin,comparisonKey:`gtin:${item.gtin}`,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href});
+          console.log('AUCHAN GTIN LOOKUP VERIFIED:',item.gtin,variantName,price,priceKg,card.href);
+          found=true; break;
+        }
+        if (!found) console.log('AUCHAN GTIN LOOKUP MISS:',item.gtin,item.variantName||item.productName);
+      } catch(e) { console.log('AUCHAN GTIN LOOKUP ERROR:',item.gtin,e.message); }
+    }
+  } finally { await browser.close(); }
+  return offers;
+}
+
 async function collectCarrefour() {
   const store=stores.find(s=>s.chain==='Carrefour' && s.enabled!==false);
   if (!store) return [];
@@ -426,7 +465,11 @@ async function collectOffers() {
   const offers=[];
   console.log(`Monitoring ${products.length} product groups across ${stores.length} configured stores.`);
   offers.push(...await collectAuchan());
-  offers.push(...await collectCarrefour());
+  const carrefourOffers=await collectCarrefour();
+  offers.push(...carrefourOffers);
+  const knownAuchanGtins=new Set(offers.filter(o=>o.store?.includes('Auchan')&&o.gtin).map(o=>o.gtin));
+  const crossLookup=[...new Map(carrefourOffers.filter(o=>o.gtin&&!knownAuchanGtins.has(o.gtin)).map(o=>[o.gtin,o])).values()];
+  offers.push(...await lookupAuchanByGtins(crossLookup));
   offers.push(...await collectIntermarche());
   offers.push(...await collectLeclerc());
   offers.push(...await collectMonoprix());
