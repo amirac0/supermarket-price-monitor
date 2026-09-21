@@ -1,0 +1,13 @@
+{
+  "name": "supermarket-price-monitor",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node src/check.mjs",
+    "test": "node --test"
+  },
+  "dependencies": {
+    "nodemailer": "^7.0.6",
+    "playwright": "^1.55.0"
+  }
+}
