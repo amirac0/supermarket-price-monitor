@@ -193,12 +193,14 @@ async function collectAuchan() {
             const promotion=parsePromotion(text,price,priceKg);
             const variantName=text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x) && x.length>6) || product.name;
             const cmpKey=comparisonKey({productId:product.id,variantName});
-            offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
-            console.log('AUCHAN VERIFIED CARD:',product.name,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'',card.href||'');
+            if (!offers.some(o=>o.store===store.name && o.comparisonKey===cmpKey && o.url===(card.href||page.url()))) {
+              offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
+              console.log('AUCHAN VERIFIED CARD:',variantName,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'',card.href||'');
+            }
             matched=true;
-            break;
+            if (!['lindt-creation','nescafe-cappuccino','ferrero-rocher','raffaello'].includes(product.id)) break;
           }
-          if (matched) break;
+          if (matched && !['lindt-creation','nescafe-cappuccino','ferrero-rocher','raffaello'].includes(product.id)) break;
           console.log('AUCHAN no verified local price:',product.name,query);
         } catch(e) {
           console.log('AUCHAN failed:',product.name,e.message);
@@ -265,12 +267,15 @@ async function collectCarrefour() {
 
           const variantName=row.title || product.name;
           const cmpKey=comparisonKey({productId:product.id,variantName});
-          offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:unit,...promotion,url:row.url||store.storePage||''});
-          console.log('CARREFOUR VERIFIED API:',product.name,price,unit,promotion.promo?('PROMO '+promotion.promoText):'',row.url||'');
+          const offerUrl=row.url||store.storePage||'';
+          if (!offers.some(o=>o.store===store.name && o.comparisonKey===cmpKey && o.url===offerUrl)) {
+            offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:unit,...promotion,url:offerUrl});
+            console.log('CARREFOUR VERIFIED API:',variantName,price,unit,promotion.promo?('PROMO '+promotion.promoText):'',row.url||'');
+          }
           matched=true;
-          break;
+          if (!['lindt-creation','nescafe-cappuccino','ferrero-rocher','raffaello'].includes(product.id)) break;
         }
-        if (matched) break;
+        if (matched && !['lindt-creation','nescafe-cappuccino','ferrero-rocher','raffaello'].includes(product.id)) break;
         console.log('CARREFOUR API no verified local price:',product.name,query);
       } catch(e) {
         console.log('CARREFOUR API error:',product.name,e.message);
