@@ -183,87 +183,70 @@ async function collectAuchan() {
 async function collectCarrefour() {
   const store=stores.find(s=>s.chain==='Carrefour' && s.enabled!==false);
   if (!store) return [];
-  const browser=await chromium.launch({headless:true});
   const offers=[];
-  try {
-    const page=await browser.newPage({locale:'fr-FR'});
-    try {
-      const driveUrl='https://www.carrefour.fr/magasin/ermont/drive';
-      await page.goto(driveUrl,{waitUntil:'domcontentloaded',timeout:30000});
-      await page.waitForTimeout(1800);
-      const body=(await page.locator('body').innerText().catch(()=>'' )).replace(/\s+/g,' ').trim();
-      console.log('CARREFOUR DRIVE context:',page.url(),'TITLE:',await page.title(),'BODY:',body.slice(0,1200));
-      if (/formalite|formalité|humain/i.test(body)) {
-        console.log('CARREFOUR BLOCKED by anti-bot challenge; skipping Carrefour without fake prices.');
-        return offers;
-      }
-      const choose=page.getByText(/Choisir ce drive/i).first();
-      if (await choose.count()) {
-        await choose.click({timeout:10000}).catch(()=>{});
-        await page.waitForTimeout(1800);
-      }
-    } catch(e) {
-      console.log('CARREFOUR DRIVE selection failed:',e.message);
-    }
 
-    for (const product of products) {
-      for (const query of product.queries) {
-        const urls=[
-          'https://www.carrefour.fr/s?q='+encodeURIComponent(query),
-          'https://www.carrefour.fr/recherche?query='+encodeURIComponent(query)
-        ];
+  // Carrefour's search pages challenge GitHub-hosted browsers. ReefAPI exposes
+  // the same Carrefour catalogue as structured data and can target a postal
+  // code, keeping regular price, unit price and promotions separate.
+  const apiKey=process.env.REEF_API_KEY;
+  if (!apiKey) {
+    console.log('CARREFOUR API: REEF_API_KEY absent; Carrefour skipped.');
+    return offers;
+  }
+
+  for (const product of products) {
+    for (const query of product.queries) {
+      try {
+        const response=await fetch('https://api.reefapi.com/carrefour-fr/v1/search',{
+          method:'POST',
+          headers:{'content-type':'application/json','x-api-key':apiKey},
+          body:JSON.stringify({query,postal_code:'95120',include_unavailable:false})
+        });
+        if (!response.ok) {
+          console.log('CARREFOUR API failed:',product.name,response.status);
+          continue;
+        }
+        const payload=await response.json();
+        const rows=payload?.data?.results || [];
         let matched=false;
-        for (const url of urls) {
-          try {
-            await page.goto(url,{waitUntil:'domcontentloaded',timeout:30000});
-            await page.waitForTimeout(2200);
-            console.log('CARREFOUR PAGE:',page.url(),'TITLE:',await page.title());
-            const bodyText=(await page.locator('body').innerText().catch(()=>'' )).replace(/\\s+/g,' ').trim();
-            console.log('CARREFOUR BODY SAMPLE:',bodyText.slice(0,3500));
-            if (/formalite|formalité|humain/i.test(bodyText)) {
-              console.log('CARREFOUR BLOCKED on search page; stopping Carrefour collector.');
-              return offers;
-            }
-            const links=await page.locator('a[href]').evaluateAll(nodes=>nodes.slice(0,250).map(a=>({
-              text:(a.innerText||'').replace(/\\s+/g,' ').trim(),
-              href:a.href||''
-            })).filter(x=>x.text && /€|oreo|kinder|lion|lindt|ferrero|raffaello|tic tac|nescaf/i.test(x.text))).catch(()=>[]);
-            const cards=await page.locator('article, li, [role="listitem"], [data-testid], [class*="product"], [class*="Product"], [class*="tile"], [class*="Tile"], [class*="card"], [class*="Card"]').evaluateAll(nodes =>
-              nodes.slice(0,250).map(n=>({
-                text:(n.innerText||'').replace(/\\s+/g,' ').trim(),
-                href:n.querySelector('a[href]')?.href||''
-              })).filter(x=>x.text && /€/.test(x.text) && x.text.length<1800)
-            ).catch(()=>[]);
-            const candidates=[...cards,...links].filter((x,i,a)=>a.findIndex(y=>y.text===x.text && y.href===x.href)===i);
-            console.log('CARREFOUR CARDS:',product.name,'count=',candidates.length);
-            console.log('CARREFOUR CARD SAMPLES:',JSON.stringify(candidates.slice(0,10)).slice(0,7000));
-            for (const card of candidates) {
-              const text=card.text;
-              const price=parseEuro(text);
-              const priceKg=parseKg(text);
-              if (!price || !priceKg) continue;
-              const normalized=text.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');
-              const tokens=query.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').split(/[^a-z0-9]+/).filter(t=>t.length>=4);
-              const distinctive=tokens.filter(t=>!['cappuccino','nescafe','chocolat','cereales','ferrero'].includes(t));
-              const required=distinctive.length ? distinctive : tokens;
-              if (required.length && !required.some(t=>normalized.includes(t))) continue;
-              if (product.id==='ferrero-rocher' && /oeuf|tablette/i.test(text)) continue;
-              if (product.id==='raffaello' && /tablette/i.test(text)) continue;
-              const promotion=parsePromotion(text,price,priceKg);
-              offers.push({productId:product.id,productName:product.name,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
-              console.log('CARREFOUR VERIFIED CARD:',product.name,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'',card.href||'');
-              matched=true;
-              break;
-            }
-          } catch(e) {
-            console.log('CARREFOUR failed:',product.name,e.message);
+        for (const row of rows) {
+          const text=[row.title,row.brand,row.packaging].filter(Boolean).join(' ');
+          const normalized=text.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'');
+          const tokens=query.toLowerCase().normalize('NFD').replace(/[\\u0300-\\u036f]/g,'').split(/[^a-z0-9]+/).filter(t=>t.length>=4);
+          const distinctive=tokens.filter(t=>!['cappuccino','nescafe','chocolat','cereales','ferrero'].includes(t));
+          const required=distinctive.length ? distinctive : tokens;
+          if (required.length && !required.some(t=>normalized.includes(t))) continue;
+          if (product.id==='ferrero-rocher' && /oeuf|tablette/i.test(text)) continue;
+          if (product.id==='raffaello' && /tablette/i.test(text)) continue;
+
+          const price=Number(row.price?.value ?? row.price ?? row.current_price);
+          const unit=Number(row.unit_price?.value ?? row.unit_price ?? row.price_per_unit);
+          if (!Number.isFinite(price) || !Number.isFinite(unit)) continue;
+
+          let promotion={promo:false,promoType:null,promoText:null,promoQuantity:null,effectivePrice:price,effectivePricePerKg:unit};
+          const promoSource=[
+            row.promotion_text,row.promotion?.label,row.promotion?.text,
+            ...(Array.isArray(row.multibuy_offers)?row.multibuy_offers.map(x=>x?.label||x?.text||''):[]),
+            ...(Array.isArray(row.loyalty_offers)?row.loyalty_offers.map(x=>x?.label||x?.text||''):[])
+          ].filter(Boolean).join(' ');
+          if (promoSource) promotion=parsePromotion(promoSource,price,unit);
+          if (Number(row.was_price)>price && !promotion.promo) {
+            const pct=(1-price/Number(row.was_price))*100;
+            promotion={promo:true,promoType:'DIRECT_DISCOUNT',promoText:`-${pct.toFixed(0)}% immédiat`,promoQuantity:1,effectivePrice:price,effectivePricePerKg:unit};
           }
-          if (matched) break;
+
+          offers.push({productId:product.id,productName:product.name,store:store.name,price,pricePerKg:unit,...promotion,url:row.url||store.storePage||''});
+          console.log('CARREFOUR VERIFIED API:',product.name,price,unit,promotion.promo?('PROMO '+promotion.promoText):'',row.url||'');
+          matched=true;
+          break;
         }
         if (matched) break;
+        console.log('CARREFOUR API no verified local price:',product.name,query);
+      } catch(e) {
+        console.log('CARREFOUR API error:',product.name,e.message);
       }
     }
-  } finally { await browser.close(); }
+  }
   return offers;
 }
 
