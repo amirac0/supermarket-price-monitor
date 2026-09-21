@@ -82,6 +82,7 @@ function comparableKg(o) {
 }
 
 function comparisonKey(o) {
+  if (o.comparisonKey) return o.comparisonKey;
   const s=String(o.variantName||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
   const form=/oeuf/.test(s)?'oeuf':/tablette/.test(s)?'tablette':/barre/.test(s)?'barre':/cereale/.test(s)?'cereales':/bonbon/.test(s)?'bonbons':'standard';
   if (o.productId === 'lindt-creation') {
@@ -191,7 +192,8 @@ async function collectAuchan() {
             if (!isValidProductMatch(product,text)) continue;
             const promotion=parsePromotion(text,price,priceKg);
             const variantName=text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x) && x.length>6) || product.name;
-            offers.push({productId:product.id,productName:product.name,variantName,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
+            const cmpKey=comparisonKey({productId:product.id,variantName});
+            offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
             console.log('AUCHAN VERIFIED CARD:',product.name,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'',card.href||'');
             matched=true;
             break;
@@ -262,7 +264,8 @@ async function collectCarrefour() {
           }
 
           const variantName=row.title || product.name;
-          offers.push({productId:product.id,productName:product.name,variantName,store:store.name,price,pricePerKg:unit,...promotion,url:row.url||store.storePage||''});
+          const cmpKey=comparisonKey({productId:product.id,variantName});
+          offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:unit,...promotion,url:row.url||store.storePage||''});
           console.log('CARREFOUR VERIFIED API:',product.name,price,unit,promotion.promo?('PROMO '+promotion.promoText):'',row.url||'');
           matched=true;
           break;
@@ -316,7 +319,8 @@ async function collectStoreWeb(chain, startUrl, searchUrlFor) {
             if (!price || !priceKg) continue;
             const promotion=parsePromotion(text,price,priceKg);
             const variantName=text.split(/\n/).map(x=>x.trim()).find(x=>/lindt|oreo|kinder|lion|ferrero|raffaello|tic tac|nescaf/i.test(x)&&x.length>6)||product.name;
-            offers.push({productId:product.id,productName:product.name,variantName,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
+            const cmpKey=comparisonKey({productId:product.id,variantName});
+            offers.push({productId:product.id,productName:product.name,variantName,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url:card.href||page.url()});
             console.log(chain.toUpperCase(),'VERIFIED:',variantName,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'');
             found=true; break;
           }
@@ -377,7 +381,12 @@ async function sendEmail(deals) {
         lines.push(`Médiane autres magasins : ${d.referencePricePerKg.toFixed(2)} €/kg — cette offre est ${d.discountVsMedian>=0?pct+' % moins chère':pct+' % plus chère'}.`);
       }
     } else {
-      lines.push('', 'Comparaison : aucun autre prix local vérifié disponible pour ce produit.');
+      const sameFamily=offers.filter(x=>x.productId===d.productId && x.store!==d.store);
+      if (sameFamily.length) {
+        lines.push('', 'Comparaison : aucun prix vérifié pour la même variante exacte dans un autre magasin.');
+      } else {
+        lines.push('', 'Comparaison : aucun autre prix local vérifié disponible pour ce produit.');
+      }
     }
     lines.push(d.url||'');
     return lines.join('\n');
