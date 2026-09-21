@@ -11,27 +11,31 @@
     "name": "Intermarché Express Ermont",
     "address": "224 rue du Général Leclerc, 95120 Ermont",
     "source": "https://www.intermarche.com/",
-    "enabled": true
+    "enabled": true,
+    "storePage": "https://www.intermarche.com/magasins/07088/ermont-95120/infos-pratiques"
   },
   {
     "chain": "Carrefour",
-    "name": "Carrefour Hyper Ermont",
+    "name": "Carrefour Ermont",
     "address": "Avenue du Président Georges Pompidou, 95120 Ermont",
     "source": "https://www.carrefour.fr/",
-    "enabled": true
+    "enabled": true,
+    "storePage": "https://www.carrefour.fr/magasin/ermont"
   },
   {
     "chain": "E.Leclerc",
-    "name": "Leclerc relais Saint-Prix",
-    "address": "77 Rue d'Ermont, 95390 Saint-Prix",
+    "name": "E.Leclerc Saint-Prix",
+    "address": "41 Rue du Général Leclerc, 95390 Saint-Prix",
     "source": "https://www.leclercdrive.fr/",
-    "enabled": true
+    "enabled": true,
+    "storePage": "https://www.e.leclerc/mag/e-leclerc-saint-prix"
   },
   {
     "chain": "Monoprix",
-    "name": "Monoprix Soisy-sous-Montmorency",
-    "address": "Soisy-sous-Montmorency 95230",
+    "name": "Monoprix Soisy PN",
+    "address": "2 Avenue Mirabeau, 95230 Soisy-sous-Montmorency",
     "source": "https://www.monoprix.fr/",
-    "enabled": true
+    "enabled": true,
+    "storePage": "https://www.monoprix.fr/414.html"
   }
 ]
