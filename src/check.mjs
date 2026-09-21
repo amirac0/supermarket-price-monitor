@@ -339,6 +339,35 @@ async function lookupAuchanByGtins(gtins) {
   return offers;
 }
 
+async function fetchCarrefourPagePromotion(url, price, unit) {
+  if (!url || !/^https:\/\/www\.carrefour\.fr\/p\//i.test(url)) return null;
+  try {
+    const response=await fetch(url,{headers:{'user-agent':'Mozilla/5.0 (compatible; supermarket-price-monitor/1.0)','accept-language':'fr-FR,fr;q=0.9'}});
+    if (!response.ok) {
+      console.log('CARREFOUR PAGE PROMO HTTP:',response.status,url);
+      return null;
+    }
+    const html=await response.text();
+    const text=html
+      .replace(/<script[^>]*>[\\s\\S]*?<\/script>/gi,' ')
+      .replace(/<style[^>]*>[\\s\\S]*?<\/style>/gi,' ')
+      .replace(/<[^>]+>/g,' ')
+      .replace(/&nbsp;|&#160;/gi,' ')
+      .replace(/&euro;|&#8364;/gi,'€')
+      .replace(/&egrave;/gi,'è').replace(/&eacute;/gi,'é')
+      .replace(/\\s+/g,' ').trim();
+    const promotion=parsePromotion(text,price,unit);
+    if (promotion.promo) {
+      console.log('CARREFOUR PAGE PROMO:',promotion.promoText,url);
+      return promotion;
+    }
+    console.log('CARREFOUR PAGE PROMO NONE:',url);
+  } catch(e) {
+    console.log('CARREFOUR PAGE PROMO ERROR:',e.message,url);
+  }
+  return null;
+}
+
 async function collectCarrefour() {
   const store=stores.find(s=>s.chain==='Carrefour' && s.enabled!==false);
   if (!store) return [];
@@ -407,6 +436,12 @@ async function collectCarrefour() {
 
           const variantName=row.title || product.name;
           const offerUrl=row.url||store.storePage||'';
+          // ReefAPI is reliable for price/EAN but sometimes omits Carrefour promotions.
+          // Enrich matched Carrefour products from their official product page.
+          if (!promotion.promo && offerUrl && product.id === 'lindt-creation') {
+            const pagePromotion=await fetchCarrefourPagePromotion(offerUrl,price,unit);
+            if (pagePromotion) promotion=pagePromotion;
+          }
           const gtin=validGtin(row.gtin ?? row.ean ?? row.ean13 ?? row.barcode ?? row.product_code) || gtinFromUrl(offerUrl);
           const cmpKey=comparisonKey({productId:product.id,variantName,gtin});
           if (!offers.some(o=>o.store===store.name && o.comparisonKey===cmpKey && o.url===offerUrl)) {
