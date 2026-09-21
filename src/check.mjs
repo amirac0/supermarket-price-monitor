@@ -474,9 +474,60 @@ async function collectIntermarche() {
     q=>'https://www.intermarche.com/recherche/'+encodeURIComponent(q));
 }
 async function collectLeclerc() {
-  return collectStoreWeb('E.Leclerc',
-    'https://www.leclercdrive.fr/region-ile-de-france/taverny/drive-saint-prix.aspx',
-    q=>'https://www.leclercdrive.fr/recherche.aspx?TexteRecherche='+encodeURIComponent(q));
+  const store=stores.find(s=>s.chain==='E.Leclerc' && s.enabled!==false);
+  if (!store) return [];
+  const browser=await chromium.launch({headless:true});
+  const offers=[];
+  try {
+    const page=await browser.newPage({locale:'fr-FR'});
+    const start='https://www.leclercdrive.fr/region-ile-de-france/taverny/drive-saint-prix.aspx';
+    await page.goto(start,{waitUntil:'domcontentloaded',timeout:30000});
+    await page.waitForTimeout(1800);
+    const host=new URL(page.url()).origin;
+    const path=page.url().replace(host,'').replace(/\/drive-saint-prix\.aspx.*$/i,'');
+    console.log('E.LECLERC SESSION:',page.url(),'host=',host,'path=',path);
+    for (const product of products) {
+      let found=false;
+      for (const query of product.queries) {
+        try {
+          // Leclerc search results are server-rendered. Product JSON is embedded in
+          // Utilitaires.widget.initOptions(...) calls, so parse the HTML instead of DOM cards.
+          const searchUrl=host+path+'/recherche.aspx?TexteRecherche='+encodeURIComponent(query);
+          const resp=await page.goto(searchUrl,{waitUntil:'domcontentloaded',timeout:30000});
+          await page.waitForTimeout(1200);
+          const html=await page.content();
+          const rows=[];
+          for (const m of html.matchAll(/"objElement"\s*:\s*(\{[^]*?"iIdProduit"[^]*?\})\s*[,}]/g)) {
+            try { rows.push(JSON.parse(m[1])); } catch {}
+          }
+          console.log('E.LECLERC EMBEDDED:',product.name,'count=',rows.length,'url=',page.url());
+          for (const row of rows) {
+            const variantName=[row.sLibelleLigne1,row.sLibelleLigne2].filter(Boolean).join(' ').trim();
+            if (!variantName || !isValidProductMatch(product,variantName)) continue;
+            const normalized=variantName.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+            const tokens=query.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').split(/[^a-z0-9]+/).filter(t=>t.length>=4);
+            if (tokens.length && !tokens.some(t=>normalized.includes(t))) continue;
+            const price=Number(row.nrPVUnitaireTTC ?? String(row.sPrixUnitaire||'').replace(',','.').replace(/[^0-9.]/g,''));
+            const priceKg=Number(row.nrPVParUniteDeMesureTTC ?? String(row.sPrixParUniteDeMesure||'').replace(',','.').match(/[0-9.]+/)?.[0]);
+            if (!Number.isFinite(price)||!Number.isFinite(priceKg)||price<=0||priceKg<=0) continue;
+            const promoText=[row.sPrixPromo,row.sLibellePromo,row.sLibelleAvantage].filter(Boolean).join(' ');
+            const promotion=parsePromotion(promoText,price,priceKg);
+            const gtin=validGtin(row.sEAN ?? row.sEan ?? row.ean ?? row.gtin);
+            const cmpKey=comparisonKey({productId:product.id,variantName,gtin});
+            const url=page.url();
+            if (!offers.some(o=>o.store===store.name&&o.variantName===variantName&&o.price===price)) {
+              offers.push({productId:product.id,productName:product.name,variantName,gtin,comparisonKey:cmpKey,store:store.name,price,pricePerKg:priceKg,...promotion,url});
+              console.log('E.LECLERC VERIFIED:',variantName,price,priceKg,promotion.promo?('PROMO '+promotion.promoText):'');
+            }
+            found=true;
+            if (!['lindt-creation','nescafe-cappuccino','ferrero-rocher','raffaello'].includes(product.id)) break;
+          }
+        } catch(e) { console.log('E.LECLERC failed:',product.name,e.message); }
+        if(found && !['lindt-creation','nescafe-cappuccino','ferrero-rocher','raffaello'].includes(product.id)) break;
+      }
+    }
+  } finally { await browser.close(); }
+  return offers;
 }
 async function collectMonoprix() {
   return collectStoreWeb('Monoprix',
