@@ -83,23 +83,25 @@ function comparableKg(o) {
 
 function comparisonKey(o) {
   const s=String(o.variantName||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+  const form=/oeuf/.test(s)?'oeuf':/tablette/.test(s)?'tablette':/barre/.test(s)?'barre':/cereale/.test(s)?'cereales':/bonbon/.test(s)?'bonbons':'standard';
   if (o.productId === 'lindt-creation') {
     const flavors=['cookie dough','creme brulee','fondant','praline','pistache','noisette','caramel','citron','menthe','orange'];
     const flavor=flavors.find(x=>s.includes(x));
-    return flavor ? `${o.productId}:${flavor}` : `${o.productId}:${s.replace(/\b(lindt|creation|tablette|de|chocolat|au|lait|noir|blanc)\b/g,' ').replace(/\s+/g,' ').trim()}`;
+    return `${o.productId}:${form}:${flavor||s.replace(/\b(lindt|creation|de|chocolat|au|lait|noir|blanc)\b/g,' ').replace(/\s+/g,' ').trim()}`;
   }
   if (o.productId === 'nescafe-cappuccino') {
     const flavors=['kitkat','vanille','chocolat blanc','noisette','praline','caramel beurre sale'];
     const flavor=flavors.find(x=>s.includes(x));
-    return `${o.productId}:${flavor||'classique'}`;
+    return `${o.productId}:${form}:${flavor||'classique'}`;
   }
+  if (o.productId === 'ferrero-rocher' || o.productId === 'raffaello') return `${o.productId}:${form}`;
   return o.productId;
 }
 
 function isValidProductMatch(product, text) {
   const s=String(text).toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
-  if (product.id==='ferrero-rocher' && (!/ferrero.*rocher|rocher.*ferrero/.test(s) || /oeuf|tablette/.test(s))) return false;
-  if (product.id==='raffaello' && (!/raffaello/.test(s) || /tablette/.test(s))) return false;
+  if (product.id==='ferrero-rocher' && !/ferrero.*rocher|rocher.*ferrero/.test(s)) return false;
+  if (product.id==='raffaello' && !/raffaello/.test(s)) return false;
   if (product.id==='nescafe-cappuccino' && (!/nescafe/.test(s) || !/cappuccino/.test(s))) return false;
   return true;
 }
